@@ -21,6 +21,10 @@ CHART_NAME="${CHART_NAME:-$REPO_NAME}"
 CHAIN_ID="${CHAIN_ID:-11155111}" # Default to Sepolia testnet
 ALLOWED_ORIGINS="${ALLOWED_ORIGINS:-*}" # Multiple domains separated by commas
 CHART_PATH="./helm-charts/${CHART_NAME}"
+
+# Echo important variables for debugging
+echo "CHART_NAME: ${CHART_NAME}"
+echo "CHART_PATH: ${CHART_PATH}"
 DEPLOY_VALUE="${DEPLOY_VALUE:-true}" 
 REMOTE_VALUE="${REMOTE_VALUE:-true}" 
 AUTO_SUBMIT_VALUE="${AUTO_SUBMIT_VALUE:-}" # Default to empty
@@ -587,4 +591,4 @@ chmod +x ts/publish.sh
 chmod +x scripts/generate-helm.sh
 
 echo "Helm chart generated successfully at ${CHART_PATH}"
-echo "Publish script generated at ts/publish.sh" 
+echo "Publish script generated at ts/publish.sh"

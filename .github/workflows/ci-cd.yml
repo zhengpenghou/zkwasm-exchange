@@ -145,9 +145,12 @@ jobs:
         version: 'latest'
         
     - name: Configure Kubernetes credentials
-      uses: azure/k8s-set-context@v3
-      with:
-        kubeconfig: ${{ secrets.KUBE_CONFIG }}
+      run: |
+        echo "Creating kubeconfig file from secret..."
+        mkdir -p $HOME/.kube
+        echo "${{ secrets.KUBE_CONFIG }}" > $HOME/.kube/config
+        chmod 600 $HOME/.kube/config
+        echo "KUBECONFIG=$HOME/.kube/config" >> $GITHUB_ENV
         
     # Add this step to set the repo name in the deploy job
     - name: Set repository name
@@ -180,9 +183,20 @@ jobs:
           exit 1
         fi
         
+        # Set CHART_NAME to REPO_LOWER if not provided
+        if [ -z "${CHART_NAME}" ]; then
+          export CHART_NAME="${REPO_LOWER##*/}"
+          echo "CHART_NAME not provided, using repository name: ${CHART_NAME}"
+        else
+          echo "Using provided CHART_NAME: ${CHART_NAME}"
+        fi
+        
         # Run chart generation script
         chmod +x ./scripts/generate-helm.sh
         ./scripts/generate-helm.sh
+        
+        # Save CHART_NAME for the deploy step
+        echo "CHART_NAME=${CHART_NAME}" >> $GITHUB_ENV
       env:
         # CHART_NAME will default to repo name if not provided
         CHART_NAME: ${{ vars.CHART_NAME }}
@@ -214,12 +228,15 @@ jobs:
           --from-literal=USER_ADDRESS=${{ secrets.USER_ADDRESS || '' }} \
           --dry-run=client -o yaml | kubectl apply -f -
         
+        # Debug info
+        echo "Deploying Helm chart from: ./helm-charts/${CHART_NAME}"
+        ls -la ./helm-charts/
+        
         # Deploy using Helm
         helm upgrade --install zkwasm-exchange \
-          ./helm-charts/${{ env.CHART_NAME }} \
+          ./helm-charts/${CHART_NAME} \
           --namespace=${{ vars.K8S_NAMESPACE || 'zkwasm' }} \
           --atomic \
           --timeout 5m
       env:
-        KUBECONFIG: ${{ secrets.KUBE_CONFIG }}
         KUBERNETES_CLUSTER: ${{ secrets.CLUSTER_NAME }}
