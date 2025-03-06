@@ -93,23 +93,37 @@ set_variable "K8S_SECRET_NAME" "$K8S_SECRET_NAME" "Name of the Kubernetes secret
 
 # KUBE_CONFIG
 echo "For KUBE_CONFIG, you can either:"
-echo "1. Enter the base64-encoded kubeconfig directly"
-echo "2. Let the script encode your kubeconfig file"
+echo "1. Enter the kubeconfig content directly (recommended)"
+echo "2. Let the script read your kubeconfig file"
 read -p "Choose option (1/2): " kube_option
 
 if [ "$kube_option" = "1" ]; then
-    KUBE_CONFIG=$(get_secret_input "Enter base64-encoded KUBE_CONFIG")
+    echo "Please paste your kubeconfig content (press Ctrl+D when done):"
+    KUBE_CONFIG=$(cat)
 else
     KUBECONFIG_PATH=$(get_input_with_default "Enter path to kubeconfig file" "$HOME/.kube/config")
     if [ ! -f "$KUBECONFIG_PATH" ]; then
         echo "Error: Kubeconfig file not found at $KUBECONFIG_PATH"
         exit 1
     fi
-    KUBE_CONFIG=$(cat "$KUBECONFIG_PATH" | base64 -w 0)
-    echo "Kubeconfig file encoded successfully"
+    KUBE_CONFIG=$(cat "$KUBECONFIG_PATH")
+    echo "Kubeconfig file read successfully"
 fi
 
-set_secret "KUBE_CONFIG" "$KUBE_CONFIG" "Base64-encoded Kubernetes configuration"
+# Validate kubeconfig format
+if [[ "$KUBE_CONFIG" == *"apiVersion"* ]]; then
+    echo "✅ Kubeconfig appears to be valid (contains apiVersion)"
+else
+    echo "⚠️ Warning: Kubeconfig does not contain 'apiVersion', it may be invalid"
+    echo "Please verify your kubeconfig is in the correct format"
+    read -p "Continue anyway? (y/n): " continue_option
+    if [ "$continue_option" != "y" ]; then
+        echo "Aborting setup"
+        exit 1
+    fi
+fi
+
+set_secret "KUBE_CONFIG" "$KUBE_CONFIG" "Kubernetes configuration"
 
 echo
 echo "Setting up GitHub Variables (configuration)"

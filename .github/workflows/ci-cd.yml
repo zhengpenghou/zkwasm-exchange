@@ -148,8 +148,35 @@ jobs:
       run: |
         echo "Creating kubeconfig file from secret..."
         mkdir -p $HOME/.kube
-        echo "${{ secrets.KUBE_CONFIG }}" > $HOME/.kube/config
+        
+        # Check if KUBE_CONFIG is base64 encoded
+        if [[ "${{ secrets.KUBE_CONFIG }}" == *"apiVersion"* ]]; then
+          # Not base64 encoded, use directly
+          echo "KUBE_CONFIG appears to be in plain text format"
+          echo "${{ secrets.KUBE_CONFIG }}" > $HOME/.kube/config
+        else
+          # Try to decode base64
+          echo "KUBE_CONFIG appears to be base64 encoded, attempting to decode"
+          echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > $HOME/.kube/config || {
+            echo "Failed to decode KUBE_CONFIG as base64, using as-is"
+            echo "${{ secrets.KUBE_CONFIG }}" > $HOME/.kube/config
+          }
+        fi
+        
         chmod 600 $HOME/.kube/config
+        
+        # Validate kubeconfig format
+        echo "Validating kubeconfig format..."
+        if grep -q "apiVersion:" $HOME/.kube/config; then
+          echo "Kubeconfig appears to be in YAML format"
+        elif grep -q "\"apiVersion\":" $HOME/.kube/config; then
+          echo "Kubeconfig appears to be in JSON format"
+        else
+          echo "WARNING: Kubeconfig does not contain apiVersion field, it may be invalid"
+          echo "First 10 lines of kubeconfig (sanitized):"
+          head -n 10 $HOME/.kube/config | sed 's/\(server: \).*/\1https:\/\/xxx.xxx.xxx.xxx/g'
+        fi
+        
         echo "KUBECONFIG=$HOME/.kube/config" >> $GITHUB_ENV
         
     # Add this step to set the repo name in the deploy job
