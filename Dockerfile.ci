@@ -4,7 +4,22 @@ FROM node:18-bullseye as builder
 
 WORKDIR /app
 
-# 复制项目文件
+# Install Rust and wasm-pack
+RUN apt-get update && apt-get install -y \
+    curl \
+    build-essential \
+    pkg-config \
+    libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Rust
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+# Install wasm-pack
+RUN curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+# Copy project files
 COPY . .
 
 # Install npm dependencies with fallback mechanisms
@@ -28,12 +43,24 @@ RUN --mount=type=secret,id=SERVER_ADMIN_KEY \
     export SERVER_ADMIN_KEY=$(cat /run/secrets/SERVER_ADMIN_KEY) && \
     export USER_PRIVATE_ACCOUNT=$(cat /run/secrets/SETTLER_PRIVATE_ACCOUNT) && \
     export USER_ADDRESS=$(cat /run/secrets/USER_ADDRESS || echo "") && \
-    make build && \
-    md5sum ./ts/node_modules/zkwasm-ts-server/src/application/application_bg.wasm | \
-    awk '{print toupper($1)}' > build-artifacts/wasm.md5 && \
-    cp ./ts/node_modules/zkwasm-ts-server/src/application/application_bg.wasm build-artifacts/ && \
-    echo "WASM MD5: $(cat build-artifacts/wasm.md5)" && \
-    cd ts && bash publish.sh
+    # Try to build with make, or use fallback if it fails
+    (make build || \
+     (echo "Make build failed, trying direct wasm-pack build..." && \
+      cd src && wasm-pack build --release --out-name application --out-dir ../pkg && \
+      mkdir -p ../ts/node_modules/zkwasm-ts-server/src/application/ && \
+      cp ../pkg/application_bg.wasm ../ts/node_modules/zkwasm-ts-server/src/application/)) && \
+    # Check if WASM file exists
+    if [ -f "./ts/node_modules/zkwasm-ts-server/src/application/application_bg.wasm" ]; then \
+      # Generate MD5 and copy file
+      md5sum ./ts/node_modules/zkwasm-ts-server/src/application/application_bg.wasm | \
+      awk '{print toupper($1)}' > build-artifacts/wasm.md5 && \
+      cp ./ts/node_modules/zkwasm-ts-server/src/application/application_bg.wasm build-artifacts/ && \
+      echo "WASM MD5: $(cat build-artifacts/wasm.md5)" && \
+      cd ts && bash publish.sh; \
+    else \
+      echo "ERROR: WASM file not found after build attempts" && \
+      exit 1; \
+    fi
 
 # Production stage
 FROM node:18-slim
