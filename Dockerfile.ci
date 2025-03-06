@@ -37,12 +37,12 @@ RUN cd ts && \
 RUN mkdir -p build-artifacts
 
 # Build WASM files and generate MD5 checksum
-RUN --mount=type=secret,id=SERVER_ADMIN_KEY \
-    --mount=type=secret,id=SETTLER_PRIVATE_ACCOUNT \
-    --mount=type=secret,id=USER_ADDRESS \
-    export SERVER_ADMIN_KEY=$(cat /run/secrets/SERVER_ADMIN_KEY) && \
-    export USER_PRIVATE_ACCOUNT=$(cat /run/secrets/SETTLER_PRIVATE_ACCOUNT) && \
-    export USER_ADDRESS=$(cat /run/secrets/USER_ADDRESS || echo "") && \
+RUN --mount=type=secret,id=SERVER_ADMIN_KEY,required=false \
+    --mount=type=secret,id=SETTLER_PRIVATE_ACCOUNT,required=false \
+    --mount=type=secret,id=USER_ADDRESS,required=false \
+    export SERVER_ADMIN_KEY=$(cat /run/secrets/SERVER_ADMIN_KEY 2>/dev/null || echo "dummy_key") && \
+    export USER_PRIVATE_ACCOUNT=$(cat /run/secrets/SETTLER_PRIVATE_ACCOUNT 2>/dev/null || echo "dummy_account") && \
+    export USER_ADDRESS=$(cat /run/secrets/USER_ADDRESS 2>/dev/null || echo "dummy_address") && \
     # Try to build with make, or use fallback if it fails
     (make build || \
      (echo "Make build failed, trying direct wasm-pack build..." && \
