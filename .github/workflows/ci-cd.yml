@@ -50,6 +50,27 @@ jobs:
             type=semver,pattern={{version}}
             type=sha,format=long
 
+      - name: Verify secrets
+        run: |
+          echo "Verifying secrets are set (not showing values for security)..."
+          if [ -z "${{ secrets.SERVER_ADMIN_KEY }}" ]; then
+            echo "Warning: SERVER_ADMIN_KEY is not set or empty"
+          else
+            echo "SERVER_ADMIN_KEY is set"
+          fi
+          
+          if [ -z "${{ secrets.SETTLER_PRIVATE_ACCOUNT }}" ]; then
+            echo "Warning: SETTLER_PRIVATE_ACCOUNT is not set or empty"
+          else
+            echo "SETTLER_PRIVATE_ACCOUNT is set"
+          fi
+          
+          if [ -z "${{ secrets.USER_ADDRESS }}" ]; then
+            echo "Warning: USER_ADDRESS is not set or empty"
+          else
+            echo "USER_ADDRESS is set"
+          fi
+
       - name: Build and push image
         uses: docker/build-push-action@v5
         with:
@@ -58,9 +79,13 @@ jobs:
           file: Dockerfile.ci
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          # Updated secrets format with quotes
           secrets: |
-            SERVER_ADMIN_KEY=${{ secrets.SERVER_ADMIN_KEY }}
-            SETTLER_PRIVATE_ACCOUNT=${{ secrets.SETTLER_PRIVATE_ACCOUNT }}
+            "SERVER_ADMIN_KEY=${{ secrets.SERVER_ADMIN_KEY }}"
+            "SETTLER_PRIVATE_ACCOUNT=${{ secrets.SETTLER_PRIVATE_ACCOUNT }}"
+            "USER_ADDRESS=${{ secrets.USER_ADDRESS }}"
+          # Add build args as a fallback
+          build-args: |
             USER_ADDRESS=${{ secrets.USER_ADDRESS }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -91,6 +116,13 @@ jobs:
           else
             echo "Warning: Could not extract WASM MD5 from Docker image"
           fi
+          
+      # Add this step to save the repo name for the deploy job
+      - name: Save repo info for deploy job
+        if: success() && github.event_name != 'pull_request'
+        run: |
+          echo "REPO_LOWER=${REPO_LOWER}" >> $GITHUB_OUTPUT
+        id: save_repo_info
 
   deploy:
     needs: build
@@ -117,6 +149,11 @@ jobs:
       with:
         kubeconfig: ${{ secrets.KUBE_CONFIG }}
         
+    # Add this step to set the repo name in the deploy job
+    - name: Set repository name
+      run: |
+        echo "REPO_LOWER=${GITHUB_REPOSITORY,,}" >> $GITHUB_ENV
+        
     - name: Generate Helm charts
       run: |
         # Create directory structure - CHART_NAME will be determined in generate-helm.sh
@@ -124,6 +161,7 @@ jobs:
         mkdir -p helm-charts
         
         # Create a container from the image but don't run it
+        # Fix the image reference by using the full path
         CONTAINER_ID=$(docker create ${{ env.REGISTRY }}/${{ env.REPO_LOWER }}:latest)
         
         # Extract the wasm.md5 file from the container
