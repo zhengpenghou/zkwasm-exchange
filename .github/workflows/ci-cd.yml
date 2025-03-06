@@ -73,15 +73,24 @@ jobs:
           echo "Tags: ${{ steps.meta.outputs.tags }}"
           
           echo "WASM files were built during Docker build process"
-          echo "Build artifacts will be downloaded in the deployment stage"
-
-      - name: Upload build artifacts
-        if: success() && github.event_name != 'pull_request'
-        uses: actions/upload-artifact@v3
-        with:
-          name: build-artifacts
-          path: build-artifacts/
-          retention-days: 1
+          echo "Extracting WASM MD5 from the Docker container..."
+          
+          # Create a container from the image but don't run it
+          CONTAINER_ID=$(docker create ${{ env.REGISTRY }}/${{ env.REPO_LOWER }}:latest)
+          
+          # Extract the wasm.md5 file from the container
+          mkdir -p build-artifacts
+          docker cp $CONTAINER_ID:/app/build-artifacts/wasm.md5 build-artifacts/
+          
+          # Remove the container
+          docker rm $CONTAINER_ID
+          
+          # Display the MD5
+          if [ -f build-artifacts/wasm.md5 ]; then
+            echo "WASM MD5: $(cat build-artifacts/wasm.md5)"
+          else
+            echo "Warning: Could not extract WASM MD5 from Docker image"
+          fi
 
   deploy:
     needs: build
@@ -92,12 +101,6 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
-      
-    - name: Download build artifacts
-      uses: actions/download-artifact@v3
-      with:
-        name: build-artifacts
-        path: build-artifacts/
       
     - name: Set up Helm
       uses: azure/setup-helm@v3
@@ -120,16 +123,24 @@ jobs:
         # Just create the base directory here
         mkdir -p helm-charts
         
-        # Verify WASM MD5 from build artifacts exists
-        if [ ! -f build-artifacts/wasm.md5 ]; then
-          echo "ERROR: build-artifacts/wasm.md5 not found"
-          echo "The IMAGE_VALUE must be the MD5 value of the WASM file"
+        # Create a container from the image but don't run it
+        CONTAINER_ID=$(docker create ${{ env.REGISTRY }}/${{ env.REPO_LOWER }}:latest)
+        
+        # Extract the wasm.md5 file from the container
+        mkdir -p build-artifacts
+        docker cp $CONTAINER_ID:/app/build-artifacts/wasm.md5 build-artifacts/
+        
+        # Remove the container
+        docker rm $CONTAINER_ID
+        
+        # Use the MD5 value from the Docker image
+        if [ -f build-artifacts/wasm.md5 ]; then
+          export IMAGE_VALUE="$(cat build-artifacts/wasm.md5)"
+          echo "Using WASM MD5 from Docker image: ${IMAGE_VALUE}"
+        else
+          echo "ERROR: Could not extract WASM MD5 from Docker image"
           exit 1
         fi
-        
-        # Use MD5 value from build artifacts
-        export IMAGE_VALUE="$(cat build-artifacts/wasm.md5)"
-        echo "Using WASM MD5 from build artifacts: ${IMAGE_VALUE}"
         
         # Run chart generation script
         chmod +x ./scripts/generate-helm.sh
