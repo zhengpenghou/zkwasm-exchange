@@ -1,0 +1,49 @@
+# syntax=docker/dockerfile:1.4
+# Build stage
+FROM node:18-bullseye as builder
+
+WORKDIR /app
+
+# 复制项目文件
+COPY . .
+
+# 先安装 npm 依赖
+RUN cd ts && npm install && npx tsc
+
+# Create build artifacts directory for CI/CD pipeline
+RUN mkdir -p build-artifacts
+
+# Build WASM files and generate MD5 checksum
+RUN --mount=type=secret,id=SERVER_ADMIN_KEY \
+    --mount=type=secret,id=SETTLER_PRIVATE_ACCOUNT \
+    --mount=type=secret,id=USER_ADDRESS \
+    export SERVER_ADMIN_KEY=$(cat /run/secrets/SERVER_ADMIN_KEY) && \
+    export USER_PRIVATE_ACCOUNT=$(cat /run/secrets/SETTLER_PRIVATE_ACCOUNT) && \
+    export USER_ADDRESS=$(cat /run/secrets/USER_ADDRESS || echo "") && \
+    make build && \
+    md5sum ./ts/node_modules/zkwasm-ts-server/src/application/application_bg.wasm | \
+    awk '{print toupper($1)}' > build-artifacts/wasm.md5 && \
+    cp ./ts/node_modules/zkwasm-ts-server/src/application/application_bg.wasm build-artifacts/ && \
+    echo "WASM MD5: $(cat build-artifacts/wasm.md5)" && \
+    cd ts && bash publish.sh
+
+# Production stage
+FROM node:18-slim
+
+# 设置非敏感环境变量
+ENV NODE_ENV="production"
+
+WORKDIR /app
+
+# Copy only necessary files from builder
+COPY --from=builder /app/ts ./ts
+COPY --from=builder /app/src/admin.pubkey ./src/admin.pubkey
+
+# Create user first
+RUN groupadd -r appuser && useradd -r -g appuser appuser
+
+# Switch to non-root user
+USER appuser
+
+EXPOSE 3000
+CMD ["node", "./ts/src/service.js"]

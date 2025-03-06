@@ -1,0 +1,176 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  # CHART_NAME will be determined from repo name in generate-helm.sh if not provided via vars.CHART_NAME
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          buildkitd-flags: --debug
+
+      - name: Convert to lowercase
+        id: lowercase
+        run: |
+          echo "REPO_LOWER=${GITHUB_REPOSITORY,,}" >> $GITHUB_ENV
+
+      - name: Log into registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.REPO_LOWER }}
+          tags: |
+            type=raw,value=latest
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=sha,format=long
+
+      - name: Build and push image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: ${{ github.event_name != 'pull_request' }}
+          file: Dockerfile.ci
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          secrets: |
+            SERVER_ADMIN_KEY=${{ secrets.SERVER_ADMIN_KEY }}
+            SETTLER_PRIVATE_ACCOUNT=${{ secrets.SETTLER_PRIVATE_ACCOUNT }}
+            USER_ADDRESS=${{ secrets.USER_ADDRESS || '' }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Generate image info
+        if: success() && github.event_name != 'pull_request'
+        run: |
+          echo "Image built and pushed successfully"
+          echo "Image: ${{ env.REGISTRY }}/${{ env.REPO_LOWER }}"
+          echo "Tags: ${{ steps.meta.outputs.tags }}"
+          
+          echo "WASM files were built during Docker build process"
+          echo "Build artifacts will be downloaded in the deployment stage"
+
+      - name: Upload build artifacts
+        if: success() && github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v3
+        with:
+          name: build-artifacts
+          path: build-artifacts/
+          retention-days: 1
+
+  deploy:
+    needs: build
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment: production
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Download build artifacts
+      uses: actions/download-artifact@v3
+      with:
+        name: build-artifacts
+        path: build-artifacts/
+      
+    - name: Set up Helm
+      uses: azure/setup-helm@v3
+      with:
+        version: 'latest'
+        
+    - name: Set up kubectl
+      uses: azure/setup-kubectl@v3
+      with:
+        version: 'latest'
+        
+    - name: Configure Kubernetes credentials
+      uses: azure/k8s-set-context@v3
+      with:
+        kubeconfig: ${{ secrets.KUBE_CONFIG }}
+        
+    - name: Generate Helm charts
+      run: |
+        # Create directory structure - CHART_NAME will be determined in generate-helm.sh
+        # Just create the base directory here
+        mkdir -p helm-charts
+        
+        # Verify WASM MD5 from build artifacts exists
+        if [ ! -f build-artifacts/wasm.md5 ]; then
+          echo "ERROR: build-artifacts/wasm.md5 not found"
+          echo "The IMAGE_VALUE must be the MD5 value of the WASM file"
+          exit 1
+        fi
+        
+        # Use MD5 value from build artifacts
+        export IMAGE_VALUE="$(cat build-artifacts/wasm.md5)"
+        echo "Using WASM MD5 from build artifacts: ${IMAGE_VALUE}"
+        
+        # Run chart generation script
+        chmod +x ./scripts/generate-helm.sh
+        ./scripts/generate-helm.sh
+      env:
+        # CHART_NAME will default to repo name if not provided
+        CHART_NAME: ${{ vars.CHART_NAME }}
+        CHAIN_ID: ${{ vars.CHAIN_ID }}
+        ALLOWED_ORIGINS: ${{ vars.ALLOWED_ORIGINS }}
+        K8S_NAMESPACE: ${{ vars.K8S_NAMESPACE }}
+        DEPLOY_VALUE: ${{ vars.DEPLOY_ENABLED }}
+        # IMAGE_VALUE is set in the script above
+        REMOTE_VALUE: ${{ vars.REMOTE_MODE }}
+        AUTO_SUBMIT_VALUE: ${{ vars.AUTO_SUBMIT }}
+        STORAGE_CLASS_NAME: ${{ vars.STORAGE_CLASS_NAME || 'csi-disk' }}
+        CREATOR_ONLY_ADD_PROVE_TASK: ${{ vars.CREATOR_ONLY_ADD_PROVE_TASK || 'true' }}
+        K8S_SECRET_NAME: ${{ vars.K8S_SECRET_NAME }}
+        SERVER_ADMIN_KEY: ${{ secrets.SERVER_ADMIN_KEY }}
+        SETTLER_PRIVATE_ACCOUNT: ${{ secrets.SETTLER_PRIVATE_ACCOUNT }}
+        USER_ADDRESS: ${{ secrets.USER_ADDRESS || '' }}
+        
+    - name: Deploy to Kubernetes
+      run: |
+        # Create namespace if it doesn't exist
+        kubectl create namespace ${{ vars.K8S_NAMESPACE || 'zkwasm' }} --dry-run=client -o yaml | kubectl apply -f -
+        
+        # Create secret with required keys
+        kubectl create secret generic ${{ vars.K8S_SECRET_NAME || 'app-secrets' }} \
+          --namespace=${{ vars.K8S_NAMESPACE || 'zkwasm' }} \
+          --from-literal=SERVER_ADMIN_KEY=${{ secrets.SERVER_ADMIN_KEY }} \
+          --from-literal=SETTLER_PRIVATE_ACCOUNT=${{ secrets.SETTLER_PRIVATE_ACCOUNT }} \
+          --from-literal=USER_PRIVATE_ACCOUNT=${{ secrets.SETTLER_PRIVATE_ACCOUNT }} \
+          --from-literal=USER_ADDRESS=${{ secrets.USER_ADDRESS || '' }} \
+          --dry-run=client -o yaml | kubectl apply -f -
+        
+        # Deploy using Helm
+        helm upgrade --install zkwasm-exchange \
+          ./helm-charts/${{ env.CHART_NAME }} \
+          --namespace=${{ vars.K8S_NAMESPACE || 'zkwasm' }} \
+          --atomic \
+          --timeout 5m
+      env:
+        KUBECONFIG: ${{ secrets.KUBE_CONFIG }}
+        KUBERNETES_CLUSTER: ${{ secrets.CLUSTER_NAME }}
