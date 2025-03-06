@@ -20,15 +20,16 @@ fi
 CHART_NAME="${CHART_NAME:-$REPO_NAME}"
 CHAIN_ID="${CHAIN_ID:-11155111}" # Default to Sepolia testnet
 ALLOWED_ORIGINS="${ALLOWED_ORIGINS:-*}" # Multiple domains separated by commas
+K8S_NAMESPACE="${K8S_NAMESPACE:-zkwasm}" # Default namespace
 CHART_PATH="./helm-charts/${CHART_NAME}"
 
 # Echo important variables for debugging
 echo "CHART_NAME: ${CHART_NAME}"
 echo "CHART_PATH: ${CHART_PATH}"
+echo "K8S_NAMESPACE: ${K8S_NAMESPACE}"
 DEPLOY_VALUE="${DEPLOY_VALUE:-true}" 
 REMOTE_VALUE="${REMOTE_VALUE:-true}" 
 AUTO_SUBMIT_VALUE="${AUTO_SUBMIT_VALUE:-}" # Default to empty
-K8S_NAMESPACE="${K8S_NAMESPACE:-zkwasm}" # Default namespace
 STORAGE_CLASS_NAME="${STORAGE_CLASS_NAME:-csi-disk}" # Make storage class configurable
 K8S_SECRET_NAME="${K8S_SECRET_NAME:-app-secrets}" # Default secret name
 CREATOR_ONLY_ADD_PROVE_TASK="${CREATOR_ONLY_ADD_PROVE_TASK:-true}" # Whether to restrict prove tasks to creator only

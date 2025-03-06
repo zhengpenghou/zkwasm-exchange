@@ -243,16 +243,34 @@ jobs:
         
     - name: Deploy to Kubernetes
       run: |
-        # Create namespace if it doesn't exist
-        kubectl create namespace ${{ vars.K8S_NAMESPACE || 'zkwasm' }} --dry-run=client -o yaml | kubectl apply -f -
+        # Debug GitHub variables
+        echo "Checking GitHub variables..."
+        echo "K8S_NAMESPACE from vars: '${{ vars.K8S_NAMESPACE }}'"
+        echo "K8S_NAMESPACE from env: '${K8S_NAMESPACE}'"
         
-        # Create secret with required keys
-        kubectl create secret generic ${{ vars.K8S_SECRET_NAME || 'app-secrets' }} \
-          --namespace=${{ vars.K8S_NAMESPACE || 'zkwasm' }} \
-          --from-literal=SERVER_ADMIN_KEY=${{ secrets.SERVER_ADMIN_KEY }} \
-          --from-literal=SETTLER_PRIVATE_ACCOUNT=${{ secrets.SETTLER_PRIVATE_ACCOUNT }} \
-          --from-literal=USER_PRIVATE_ACCOUNT=${{ secrets.SETTLER_PRIVATE_ACCOUNT }} \
-          --from-literal=USER_ADDRESS=${{ secrets.USER_ADDRESS || '' }} \
+        # Use K8S_NAMESPACE from environment variable if set, otherwise use the GitHub variable, with zkwasm as fallback
+        NAMESPACE="${K8S_NAMESPACE:-${{ vars.K8S_NAMESPACE }}}"
+        NAMESPACE="${NAMESPACE:-zkwasm}"
+        echo "Using namespace: ${NAMESPACE}"
+        
+        # Create namespace if it doesn't exist
+        kubectl create namespace ${NAMESPACE} --dry-run=client -o yaml | kubectl apply -f -
+        
+        # Get secret name
+        SECRET_NAME="${K8S_SECRET_NAME:-${{ vars.K8S_SECRET_NAME }}}"
+        SECRET_NAME="${SECRET_NAME:-app-secrets}"
+        echo "Using secret name: ${SECRET_NAME}"
+        
+        # Create secret with required keys - using a simpler approach
+        echo "Creating Kubernetes secret..."
+        
+        # Create the secret directly with kubectl
+        kubectl create secret generic ${SECRET_NAME} \
+          --namespace=${NAMESPACE} \
+          --from-literal=SERVER_ADMIN_KEY="${{ secrets.SERVER_ADMIN_KEY }}" \
+          --from-literal=SETTLER_PRIVATE_ACCOUNT="${{ secrets.SETTLER_PRIVATE_ACCOUNT }}" \
+          --from-literal=USER_PRIVATE_ACCOUNT="${{ secrets.SETTLER_PRIVATE_ACCOUNT }}" \
+          --from-literal=USER_ADDRESS="${{ secrets.USER_ADDRESS || '' }}" \
           --dry-run=client -o yaml | kubectl apply -f -
         
         # Debug info
@@ -262,7 +280,7 @@ jobs:
         # Deploy using Helm
         helm upgrade --install zkwasm-exchange \
           ./helm-charts/${CHART_NAME} \
-          --namespace=${{ vars.K8S_NAMESPACE || 'zkwasm' }} \
+          --namespace=${NAMESPACE} \
           --atomic \
           --timeout 5m
       env:

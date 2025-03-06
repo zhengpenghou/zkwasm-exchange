@@ -146,8 +146,11 @@ ALLOWED_ORIGINS=$(get_input_with_default "Enter ALLOWED_ORIGINS" "*")
 set_variable "ALLOWED_ORIGINS" "$ALLOWED_ORIGINS" "CORS allowed origins"
 
 # K8S_NAMESPACE
+echo "IMPORTANT: The K8S_NAMESPACE variable is used to determine which Kubernetes namespace to deploy to."
+echo "This is a critical setting that affects where your application will be deployed."
 K8S_NAMESPACE=$(get_input_with_default "Enter Kubernetes namespace" "zkwasm")
 set_variable "K8S_NAMESPACE" "$K8S_NAMESPACE" "Kubernetes namespace for deployment"
+echo "✅ K8S_NAMESPACE set to: $K8S_NAMESPACE"
 
 # DEPLOY_ENABLED
 DEPLOY_ENABLED=$(get_input_with_default "Enable deployment functionality (true/false)" "true")
