@@ -7,8 +7,16 @@ WORKDIR /app
 # 复制项目文件
 COPY . .
 
-# 先安装 npm 依赖
-RUN cd ts && npm install && npx tsc
+# Install npm dependencies with fallback mechanisms
+RUN cd ts && \
+    # First try: Use package-lock.json (normal install)
+    (npm ci || \
+    # Second try: If npm ci fails, try regular install
+    npm install || \
+    # Third try: If regular install fails, try with --no-package-lock
+    npm install --no-package-lock) && \
+    # Run TypeScript compiler
+    npx tsc
 
 # Create build artifacts directory for CI/CD pipeline
 RUN mkdir -p build-artifacts

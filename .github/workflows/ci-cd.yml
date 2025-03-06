@@ -59,9 +59,9 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           secrets: |
-            SERVER_ADMIN_KEY=${{ secrets.SERVER_ADMIN_KEY }}
-            SETTLER_PRIVATE_ACCOUNT=${{ secrets.SETTLER_PRIVATE_ACCOUNT }}
-            USER_ADDRESS=${{ secrets.USER_ADDRESS || '' }}
+            SERVER_ADMIN_KEY
+            SETTLER_PRIVATE_ACCOUNT
+            USER_ADDRESS
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
