@@ -4,7 +4,7 @@ FROM node:18-bullseye as builder
 
 WORKDIR /app
 
-# Install Rust and wasm-pack
+# Install Rust and wasm-pack - these rarely change
 RUN apt-get update && apt-get install -y \
     curl \
     build-essential \
@@ -12,32 +12,38 @@ RUN apt-get update && apt-get install -y \
     libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Rust
+# Install Rust - this rarely changes
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 ENV PATH="/root/.cargo/bin:${PATH}"
 
-# Install wasm-pack
+# Install wasm-pack - this rarely changes
 RUN curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
 
-# Copy project files
-COPY . .
+# Copy package files first - these change less frequently than source code
+COPY ts/package.json ts/package-lock.json ts/tsconfig.json ts/
+COPY Cargo.toml Cargo.lock rust-toolchain ./
 
-# Install npm dependencies with fallback mechanisms
+# Install npm dependencies - this will be cached if package files don't change
 RUN cd ts && \
     # First try: Use package-lock.json (normal install)
     (npm ci || \
     # Second try: If npm ci fails, try regular install
     npm install || \
     # Third try: If regular install fails, try with --no-package-lock
-    npm install --no-package-lock) && \
-    # Run TypeScript compiler
-    npx tsc
+    npm install --no-package-lock)
+
+# Now copy the source code - this changes most frequently
+COPY src/ src/
+COPY ts/src/ ts/src/
+COPY Makefile ./
 
 # Create build artifacts directory for CI/CD pipeline
-RUN mkdir -p build-artifacts
+RUN mkdir -p build-artifacts && cd ts && npx tsc
 
 # Add ARG for fallback
 ARG USER_ADDRESS=""
+ARG CHAIN_ID="11155111"
+ARG CREATOR_ONLY_ADD_PROVE_TASK="true"
 
 # Build WASM files with debug and fallbacks
 RUN --mount=type=secret,id=SERVER_ADMIN_KEY \
@@ -59,6 +65,27 @@ RUN --mount=type=secret,id=SERVER_ADMIN_KEY \
       md5sum ./ts/node_modules/zkwasm-ts-server/src/application/application_bg.wasm | \
       awk '{print toupper($1)}' > build-artifacts/wasm.md5 && \
       cp ./ts/node_modules/zkwasm-ts-server/src/application/application_bg.wasm build-artifacts/; \
+    fi
+
+# Publish WASM image to zkwasmhub if secrets are available
+RUN --mount=type=secret,id=SETTLER_PRIVATE_ACCOUNT \
+    --mount=type=secret,id=USER_ADDRESS \
+    if [ -f "./ts/node_modules/zkwasm-ts-server/src/application/application_bg.wasm" ] && \
+       [ -n "$(cat /run/secrets/USER_ADDRESS 2>/dev/null)" ] && \
+       [ -n "$(cat /run/secrets/SETTLER_PRIVATE_ACCOUNT 2>/dev/null)" ]; then \
+      echo "Publishing WASM image to zkwasmhub..." && \
+      cd ts && \
+      npm install zkwasm-service-cli && \
+      echo "USER_ADDRESS=\"$(cat /run/secrets/USER_ADDRESS 2>/dev/null || echo "${USER_ADDRESS}")\"" > .env && \
+      echo "USER_PRIVATE_ACCOUNT=\"$(cat /run/secrets/SETTLER_PRIVATE_ACCOUNT 2>/dev/null)\"" >> .env && \
+      echo "SETTLER_PRIVATE_ACCOUNT=\"$(cat /run/secrets/SETTLER_PRIVATE_ACCOUNT 2>/dev/null)\"" >> .env && \
+      echo "CHAIN_ID=\"${CHAIN_ID}\"" >> .env && \
+      echo "CHART_NAME=\"zkwasm-exchange\"" >> .env && \
+      echo "CREATOR_ONLY_ADD_PROVE_TASK=\"${CREATOR_ONLY_ADD_PROVE_TASK}\"" >> .env && \
+      chmod +x publish.sh && \
+      ./publish.sh || echo "WASM publishing failed, but continuing build"; \
+    else \
+      echo "Skipping WASM publishing due to missing files or secrets"; \
     fi
 
 # Production stage

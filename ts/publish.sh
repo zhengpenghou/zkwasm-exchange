@@ -45,7 +45,21 @@ echo "  Chart Name: $CHART_NAME"
 echo "  Auto Submit: $AUTO_SUBMIT"
 echo "  Creator Only Add Prove Task: $CREATOR_ONLY_ADD_PROVE_TASK"
 
+# Check if the WASM file exists
+if [ ! -f "./node_modules/zkwasm-ts-server/src/application/application_bg.wasm" ]; then
+  echo "ERROR: WASM file not found at ./node_modules/zkwasm-ts-server/src/application/application_bg.wasm"
+  echo "Please ensure the WASM file is in the correct location"
+  exit 1
+fi
+
+# Check if zkwasm-service-cli is installed
+if [ ! -d "./node_modules/zkwasm-service-cli" ]; then
+  echo "Installing zkwasm-service-cli..."
+  npm install zkwasm-service-cli
+fi
+
 # Execute the command with environment variables
+echo "Running zkwasm-service-cli addimage command..."
 node ./node_modules/zkwasm-service-cli/dist/index.js addimage \
   -r "https://rpc.zkwasmhub.com:8090" \
   -p "./node_modules/zkwasm-ts-server/src/application/application_bg.wasm" \
@@ -55,3 +69,5 @@ node ./node_modules/zkwasm-service-cli/dist/index.js addimage \
   -c 22 \
   --auto_submit_network_ids $CHAIN_ID \
   --creator_only_add_prove_task $CREATOR_ONLY_ADD_PROVE_TASK
+
+echo "WASM image publishing completed"
