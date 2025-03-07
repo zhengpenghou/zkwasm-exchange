@@ -177,7 +177,6 @@ jobs:
         if: success() && github.event_name != 'pull_request'
         run: |
           echo "REPO_LOWER=${REPO_LOWER}" >> $GITHUB_OUTPUT
-        id: save_repo_info
 
   # deploy job commented out as requested - only using CI to build docker image and publish WASM
   # deploy:
