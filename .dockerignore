@@ -1,0 +1,44 @@
+# Version control
+.git
+.github
+.gitignore
+
+# Build artifacts
+target/
+pkg/
+build-artifacts/
+
+# Node.js
+**/node_modules
+**/npm-debug.log
+**/yarn-debug.log
+**/yarn-error.log
+
+# Editor files
+.vscode
+.idea
+*.swp
+*.swo
+
+# Environment files
+.env
+.env.*
+
+# Temporary files
+**/tmp
+**/temp
+**/*.tmp
+**/*.temp
+
+# Documentation
+docs/
+*.md
+LICENSE
+
+# Tests
+**/__tests__
+**/*.test.*
+**/*.spec.*
+
+# Misc
+.DS_Store
