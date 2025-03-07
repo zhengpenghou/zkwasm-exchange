@@ -28,8 +28,6 @@ jobs:
           driver-opts: |
             image=moby/buildkit:latest
             network=host
-            network.mountmode=nolock
-            network.opmode=internal
 
       - name: Convert to lowercase
         id: lowercase
