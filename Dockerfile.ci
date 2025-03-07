@@ -32,25 +32,22 @@ COPY src/ src/
 COPY ts/src/ ts/src/
 COPY scripts/publish.sh scripts/publish.sh
 COPY scripts/clean_env.sh scripts/clean_env.sh
+COPY scripts/init_admin.sh scripts/init_admin.sh
 COPY Makefile ./
 
 # Make scripts executable
-RUN chmod +x scripts/publish.sh scripts/clean_env.sh
+RUN chmod +x scripts/publish.sh scripts/clean_env.sh scripts/init_admin.sh
 
 # Generate admin.pubkey securely with fallback to default key if not provided
 RUN --mount=type=secret,id=SERVER_ADMIN_KEY,required=false \
     if [ -s /run/secrets/SERVER_ADMIN_KEY ]; then \
         echo "Using SERVER_ADMIN_KEY from GitHub secrets"; \
-        node ./ts/node_modules/zkwasm-ts-server/src/init_admin.js \
-        /run/secrets/SERVER_ADMIN_KEY \
-        ./src/admin.pubkey; \
+        ./scripts/init_admin.sh /run/secrets/SERVER_ADMIN_KEY ./src/admin.pubkey; \
     else \
         echo "WARNING: SERVER_ADMIN_KEY not found in GitHub secrets. Using default key for development only."; \
         echo "THIS SHOULD NOT BE USED IN PRODUCTION!"; \
         echo "0000000000000000000000000000000000000000000000000000000000000001" > /tmp/default_admin_key; \
-        node ./ts/node_modules/zkwasm-ts-server/src/init_admin.js \
-        /tmp/default_admin_key \
-        ./src/admin.pubkey; \
+        ./scripts/init_admin.sh /tmp/default_admin_key ./src/admin.pubkey; \
         shred -u /tmp/default_admin_key; \
     fi
 
