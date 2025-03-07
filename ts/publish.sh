@@ -65,6 +65,7 @@ node ./node_modules/zkwasm-service-cli/dist/index.js addimage \
   -p "./node_modules/zkwasm-ts-server/src/application/application_bg.wasm" \
   -u "$USER_ADDRESS" \
   -x "$USER_PRIVATE_ACCOUNT" \
+  -n "$CHART_NAME" \
   -d "$CHART_NAME Application" \
   -c 22 \
   --auto_submit_network_ids $CHAIN_ID \
