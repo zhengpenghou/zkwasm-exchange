@@ -74,17 +74,16 @@ jobs:
             echo "USER_ADDRESS is set"
           fi
 
-      # Set up cache for Docker layers with improved caching strategy
+      # Set up cache for Docker layers
       - name: Set up Docker layer caching
         uses: actions/cache@v3
         with:
           path: /tmp/.buildx-cache
-          key: ${{ runner.os }}-buildx-${{ hashFiles('Dockerfile.ci', 'ts/package.json', 'ts/package-lock.json', 'Cargo.toml', 'Cargo.lock') }}
+          key: ${{ runner.os }}-buildx-${{ github.sha }}
           restore-keys: |
             ${{ runner.os }}-buildx-
 
       - name: Build and push image
-        id: docker_build
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -97,11 +96,8 @@ jobs:
             "SERVER_ADMIN_KEY=${{ secrets.SERVER_ADMIN_KEY }}"
             "SETTLER_PRIVATE_ACCOUNT=${{ secrets.SETTLER_PRIVATE_ACCOUNT }}"
             "USER_ADDRESS=${{ secrets.USER_ADDRESS }}"
-          # Build args with optimizations
+          # Add build args as a fallback
           build-args: |
-            BUILDKIT_INLINE_CACHE=1
-            DOCKER_BUILDKIT=1
-            CI=true
             USER_ADDRESS=${{ secrets.USER_ADDRESS }}
             CHAIN_ID=${{ vars.CHAIN_ID || '11155111' }}
             CREATOR_ONLY_ADD_PROVE_TASK=${{ vars.CREATOR_ONLY_ADD_PROVE_TASK || 'true' }}
@@ -115,8 +111,6 @@ jobs:
           # Add build options for better performance
           platforms: linux/amd64
           provenance: false
-          # Optimize build speed
-          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.REPO_LOWER }},push-by-digest=true,name-canonical=true
           
       # Move cache to prevent it from growing indefinitely
       - name: Move cache
@@ -125,8 +119,8 @@ jobs:
           mv /tmp/.buildx-cache-new /tmp/.buildx-cache
 
       - name: Generate image info
-        if: success() && github.event_name != 'pull_request'
         id: image_info
+        if: success() && github.event_name != 'pull_request'
         run: |
           echo "Image built and pushed successfully"
           echo "Image: ${{ env.REGISTRY }}/${{ env.REPO_LOWER }}"
@@ -155,17 +149,35 @@ jobs:
             echo "wasm_md5=unknown" >> $GITHUB_OUTPUT
           fi
           
+      # Notify with WASM Image MD5 using GitHub's notification system
       - name: Notify with WASM Image MD5
         if: success() && github.event_name != 'pull_request'
         run: |
           echo "::notice title=Build Completed Successfully::WASM Image MD5 (IMAGE_VALUE): ${{ steps.image_info.outputs.wasm_md5 }}"
           
+      # Create a summary with build details that will be emailed to subscribers
+      - name: Create GitHub Step Summary
+        if: success() && github.event_name != 'pull_request'
+        run: |
+          echo "## WASM Image Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Build completed successfully" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Build Details" >> $GITHUB_STEP_SUMMARY
+          echo "- **Repository:** ${{ github.repository }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Image:** ${{ env.REGISTRY }}/${{ env.REPO_LOWER }}:latest" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### WASM Image Information" >> $GITHUB_STEP_SUMMARY
+          echo "- **WASM Image MD5 (IMAGE_VALUE):** ${{ steps.image_info.outputs.wasm_md5 }}" >> $GITHUB_STEP_SUMMARY
+
       # Add this step to save the repo name for the deploy job
       - name: Save repo info for deploy job
         id: save_repo_info
         if: success() && github.event_name != 'pull_request'
         run: |
           echo "REPO_LOWER=${REPO_LOWER}" >> $GITHUB_OUTPUT
+        id: save_repo_info
 
   # deploy job commented out as requested - only using CI to build docker image and publish WASM
   # deploy:
