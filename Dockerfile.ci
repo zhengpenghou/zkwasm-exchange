@@ -36,20 +36,32 @@ COPY scripts/init_admin.sh scripts/init_admin.sh
 COPY Makefile ./
 
 # Make scripts executable
-RUN chmod +x scripts/publish.sh scripts/clean_env.sh scripts/init_admin.sh
+RUN chmod +x scripts/publish.sh scripts/clean_env.sh
 
-# Generate admin.pubkey securely with fallback to default key if not provided
+# Generate admin.pubkey using init_admin.js
 RUN --mount=type=secret,id=SERVER_ADMIN_KEY,required=false \
+    mkdir -p ./src && \
     if [ -s /run/secrets/SERVER_ADMIN_KEY ]; then \
         echo "Using SERVER_ADMIN_KEY from GitHub secrets"; \
-        ./scripts/init_admin.sh /run/secrets/SERVER_ADMIN_KEY ./src/admin.pubkey; \
+        # Set environment variable for init_admin.js from the secret
+        export SERVER_ADMIN_KEY=$(cat /run/secrets/SERVER_ADMIN_KEY); \
+        \
+        # Generate admin.pubkey using init_admin.js
+        node ./ts/node_modules/zkwasm-ts-server/src/init_admin.js ./src/admin.pubkey; \
+        \
+        # Clear the environment variable
+        unset SERVER_ADMIN_KEY; \
     else \
         echo "WARNING: SERVER_ADMIN_KEY not found in GitHub secrets. Using default key for development only."; \
         echo "THIS SHOULD NOT BE USED IN PRODUCTION!"; \
-        echo "0000000000000000000000000000000000000000000000000000000000000001" > /tmp/default_admin_key; \
-        ./scripts/init_admin.sh /tmp/default_admin_key ./src/admin.pubkey; \
-        shred -u /tmp/default_admin_key; \
+        \
+        # Generate admin.pubkey using init_admin.js with its internal fallback
+        # No need to provide SERVER_ADMIN_KEY, it will use the default key
+        node ./ts/node_modules/zkwasm-ts-server/src/init_admin.js ./src/admin.pubkey; \
     fi
+
+# Verify that admin.pubkey was created successfully
+RUN ls -la ./src/admin.pubkey
 
 # Build TypeScript
 RUN cd ts && npx tsc
@@ -111,16 +123,17 @@ ENV NODE_ENV="production"
 # Create non-root user first
 RUN groupadd -r appuser && useradd -r -g appuser -m appuser
 
-# Copy application files with proper permissions
-COPY --from=builder --chown=appuser:appuser \
-    /app/ts \
-    /app/src/admin.pubkey \
-    ./
+# Create necessary directories
+RUN mkdir -p /app/ts /app/src
 
-# Set proper permissions
-RUN chmod -R 550 ./ts/src && \
-    chmod 440 ./src/admin.pubkey && \
-    chmod 440 ./ts/wasm.md5
+# Copy application files with proper permissions
+COPY --from=builder --chown=appuser:appuser /app/ts/ /app/ts/
+COPY --from=builder --chown=appuser:appuser /app/src/admin.pubkey /app/src/admin.pubkey
+
+# Set proper permissions (with error handling)
+RUN chmod -R 550 ./ts/src 2>/dev/null || echo "Warning: Could not set permissions on ts/src" && \
+    chmod 440 ./src/admin.pubkey 2>/dev/null || echo "Warning: Could not set permissions on admin.pubkey" && \
+    chmod 440 ./ts/wasm.md5 2>/dev/null || echo "Warning: Could not set permissions on wasm.md5"
 
 # Switch to non-root user
 USER appuser
