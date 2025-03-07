@@ -134,7 +134,7 @@ jobs:
           
           # Extract the wasm.md5 file from the container
           mkdir -p build-artifacts
-          docker cp $CONTAINER_ID:/app/build-artifacts/wasm.md5 build-artifacts/
+          docker cp $CONTAINER_ID:/app/ts/wasm.md5 build-artifacts/
           
           # Remove the container
           docker rm $CONTAINER_ID
