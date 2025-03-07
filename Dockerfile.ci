@@ -37,6 +37,7 @@ RUN cd ts && \
 COPY src/ src/
 COPY ts/src/ ts/src/
 COPY ts/publish.sh ts/publish.sh
+COPY ts/clean_env.sh ts/clean_env.sh
 COPY Makefile ./
 
 # Create build artifacts directory for CI/CD pipeline
@@ -58,8 +59,8 @@ RUN --mount=type=secret,id=SERVER_ADMIN_KEY \
     ls -la /run/secrets/ || echo "No secrets directory found" && \
     echo "Attempting to read secrets..." && \
     export SERVER_ADMIN_KEY=$(cat /run/secrets/SERVER_ADMIN_KEY 2>/dev/null || echo "default_key") && \
-    export USER_PRIVATE_ACCOUNT=$(cat /run/secrets/SETTLER_PRIVATE_ACCOUNT 2>/dev/null || echo "default_account") && \
-    export USER_ADDRESS=$(cat /run/secrets/USER_ADDRESS 2>/dev/null || echo "${USER_ADDRESS:-default_address}") && \
+    export USER_PRIVATE_ACCOUNT=$(cat /run/secrets/SETTLER_PRIVATE_ACCOUNT 2>/dev/null | tr -d '\n\r' || echo "default_account") && \
+    export USER_ADDRESS=$(cat /run/secrets/USER_ADDRESS 2>/dev/null | tr -d '\n\r' || echo "${USER_ADDRESS:-default_address}") && \
     echo "Using USER_ADDRESS: $USER_ADDRESS" && \
     # Build WASM files
     (make build || \
@@ -76,10 +77,13 @@ RUN --mount=type=secret,id=SERVER_ADMIN_KEY \
       if [ -n "$(cat /run/secrets/USER_ADDRESS 2>/dev/null)" ] && [ -n "$(cat /run/secrets/SETTLER_PRIVATE_ACCOUNT 2>/dev/null)" ]; then \
         echo "Publishing WASM image to zkwasmhub..." && \
         cd ts && \
-        # Create .env file with required variables
-        echo "USER_ADDRESS=\"$USER_ADDRESS\"" > .env && \
-        echo "USER_PRIVATE_ACCOUNT=\"$USER_PRIVATE_ACCOUNT\"" >> .env && \
-        echo "SETTLER_PRIVATE_ACCOUNT=\"$USER_PRIVATE_ACCOUNT\"" >> .env && \
+        # Clean environment variables to ensure they don't contain newlines
+        USER_ADDRESS_CLEAN=$(echo "$USER_ADDRESS" | tr -d '\n\r') && \
+        USER_PRIVATE_ACCOUNT_CLEAN=$(echo "$USER_PRIVATE_ACCOUNT" | tr -d '\n\r') && \
+        # Create .env file with clean variables
+        echo "USER_ADDRESS=\"$USER_ADDRESS_CLEAN\"" > .env && \
+        echo "USER_PRIVATE_ACCOUNT=\"$USER_PRIVATE_ACCOUNT_CLEAN\"" >> .env && \
+        echo "SETTLER_PRIVATE_ACCOUNT=\"$USER_PRIVATE_ACCOUNT_CLEAN\"" >> .env && \
         echo "CHAIN_ID=\"${CHAIN_ID}\"" >> .env && \
         echo "CHART_NAME=\"zkwasm-exchange\"" >> .env && \
         echo "CREATOR_ONLY_ADD_PROVE_TASK=\"${CREATOR_ONLY_ADD_PROVE_TASK}\"" >> .env && \
