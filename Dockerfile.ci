@@ -4,7 +4,7 @@ FROM node:18-bullseye as builder
 
 WORKDIR /app
 
-# Install Rust and wasm-pack - these rarely change
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
     curl \
     build-essential \
@@ -13,83 +13,76 @@ RUN apt-get update && apt-get install -y \
     binaryen \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Rust - this rarely changes
+# Install Rust toolchain
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 ENV PATH="/root/.cargo/bin:${PATH}"
 
-# Install wasm-pack - this rarely changes
+# Install wasm-pack
 RUN curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
 
-# Copy package files first - these change less frequently than source code
+# Copy package files
 COPY ts/package.json ts/package-lock.json ts/tsconfig.json ts/
 COPY Cargo.toml Cargo.lock rust-toolchain ./
 
-# Install npm dependencies - this will be cached if package files don't change
-RUN cd ts && \
-    # First try: Use package-lock.json (normal install)
-    (npm ci || \
-    # Second try: If npm ci fails, try regular install
-    npm install || \
-    # Third try: If regular install fails, try with --no-package-lock
-    npm install --no-package-lock)
+# Install npm dependencies
+RUN cd ts && npm ci
 
-# Now copy the source code - this changes most frequently
+# Copy source code
 COPY src/ src/
 COPY ts/src/ ts/src/
-COPY ts/publish.sh ts/publish.sh
-COPY ts/clean_env.sh ts/clean_env.sh
+COPY scripts/publish.sh scripts/publish.sh
+COPY scripts/clean_env.sh scripts/clean_env.sh
 COPY Makefile ./
 
-# Create build artifacts directory for CI/CD pipeline
-RUN mkdir -p build-artifacts && cd ts && npx tsc
+# Make scripts executable
+RUN chmod +x scripts/publish.sh scripts/clean_env.sh
 
-# Add ARG for fallback
-ARG USER_ADDRESS=""
+# Generate admin.pubkey securely with fallback to default key if not provided
+RUN --mount=type=secret,id=SERVER_ADMIN_KEY,required=false \
+    if [ -s /run/secrets/SERVER_ADMIN_KEY ]; then \
+        echo "Using SERVER_ADMIN_KEY from GitHub secrets"; \
+        node ./ts/node_modules/zkwasm-ts-server/src/init_admin.js \
+        /run/secrets/SERVER_ADMIN_KEY \
+        ./src/admin.pubkey; \
+    else \
+        echo "WARNING: SERVER_ADMIN_KEY not found in GitHub secrets. Using default key for development only."; \
+        echo "THIS SHOULD NOT BE USED IN PRODUCTION!"; \
+        echo "0000000000000000000000000000000000000000000000000000000000000001" > /tmp/default_admin_key; \
+        node ./ts/node_modules/zkwasm-ts-server/src/init_admin.js \
+        /tmp/default_admin_key \
+        ./src/admin.pubkey; \
+        shred -u /tmp/default_admin_key; \
+    fi
+
+# Build TypeScript
+RUN cd ts && npx tsc
+
+# Build WASM artifacts and generate MD5 for CI notifications
+RUN wasm-pack build --release --out-name application --out-dir pkg && \
+    wasm-opt -Oz -o ./ts/node_modules/zkwasm-ts-server/src/application/application_bg.wasm pkg/application_bg.wasm && \
+    cp pkg/application_bg.wasm ./ts/node_modules/zkwasm-ts-server/src/application/ && \
+    cp pkg/application_bg.wasm.d.ts ./ts/node_modules/zkwasm-ts-server/src/application/ && \
+    cd ./ts/node_modules/zkwasm-ts-server && npx tsc && cd - && \
+    # Generate MD5 for CI notifications
+    md5sum ./ts/node_modules/zkwasm-ts-server/src/application/application_bg.wasm | \
+    awk '{print toupper($1)}' > ./ts/wasm.md5
+
+# Handle publishing in a separate layer to avoid secrets in image history
 ARG CHAIN_ID="11155111"
 ARG CREATOR_ONLY_ADD_PROVE_TASK="true"
 
-# Install zkwasm-service-cli for publishing
-RUN cd ts && npm install zkwasm-service-cli --no-audit --no-fund --no-optional --no-package-lock --no-save --ignore-scripts --force
-
-# Build WASM files and publish to zkwasmhub in a single step
-RUN --mount=type=secret,id=SERVER_ADMIN_KEY \
-    --mount=type=secret,id=SETTLER_PRIVATE_ACCOUNT \
-    --mount=type=secret,id=USER_ADDRESS \
-    echo "Checking for secrets directory..." && \
-    ls -la /run/secrets/ || echo "No secrets directory found" && \
-    echo "Attempting to read secrets..." && \
-    export SERVER_ADMIN_KEY=$(cat /run/secrets/SERVER_ADMIN_KEY 2>/dev/null || echo "default_key") && \
-    export USER_PRIVATE_ACCOUNT=$(cat /run/secrets/SETTLER_PRIVATE_ACCOUNT 2>/dev/null | tr -d '\n\r' || echo "default_account") && \
-    export USER_ADDRESS=$(cat /run/secrets/USER_ADDRESS 2>/dev/null | tr -d '\n\r' || echo "${USER_ADDRESS:-default_address}") && \
-    echo "Using USER_ADDRESS: $USER_ADDRESS" && \
-    # Build WASM files
-    (make build || \
-     (echo "Make build failed, trying direct wasm-pack build..." && \
-      cd src && wasm-pack build --release --out-name application --out-dir ../pkg && \
-      mkdir -p ../ts/node_modules/zkwasm-ts-server/src/application/ && \
-      cp ../pkg/application_bg.wasm ../ts/node_modules/zkwasm-ts-server/src/application/)) && \
-    # Generate MD5 and copy WASM file to build-artifacts
-    if [ -f "./ts/node_modules/zkwasm-ts-server/src/application/application_bg.wasm" ]; then \
-      md5sum ./ts/node_modules/zkwasm-ts-server/src/application/application_bg.wasm | \
-      awk '{print toupper($1)}' > build-artifacts/wasm.md5 && \
-      cp ./ts/node_modules/zkwasm-ts-server/src/application/application_bg.wasm build-artifacts/ && \
-      # Publish WASM image if secrets are available
-      if [ -n "$(cat /run/secrets/USER_ADDRESS 2>/dev/null)" ] && [ -n "$(cat /run/secrets/SETTLER_PRIVATE_ACCOUNT 2>/dev/null)" ]; then \
-        echo "Publishing WASM image to zkwasmhub..." && \
+# Use clean_env.sh script to sanitize and handle environment variables
+RUN --mount=type=secret,id=SETTLER_PRIVATE_ACCOUNT,required=false \
+    --mount=type=secret,id=USER_ADDRESS,required=false \
+    if [ -s /run/secrets/USER_ADDRESS ] && [ -s /run/secrets/SETTLER_PRIVATE_ACCOUNT ]; then \
+        echo "Using USER_ADDRESS and SETTLER_PRIVATE_ACCOUNT from GitHub secrets"; \
         cd ts && \
-        # Clean environment variables to ensure they don't contain newlines
-        USER_ADDRESS_CLEAN=$(echo "$USER_ADDRESS" | tr -d '\n\r') && \
-        USER_PRIVATE_ACCOUNT_CLEAN=$(echo "$USER_PRIVATE_ACCOUNT" | tr -d '\n\r') && \
-        # Create .env file with clean variables
-        echo "USER_ADDRESS=\"$USER_ADDRESS_CLEAN\"" > .env && \
-        echo "USER_PRIVATE_ACCOUNT=\"$USER_PRIVATE_ACCOUNT_CLEAN\"" >> .env && \
-        echo "SETTLER_PRIVATE_ACCOUNT=\"$USER_PRIVATE_ACCOUNT_CLEAN\"" >> .env && \
-        echo "CHAIN_ID=\"${CHAIN_ID}\"" >> .env && \
-        echo "CHART_NAME=\"zkwasm-exchange\"" >> .env && \
-        echo "CREATOR_ONLY_ADD_PROVE_TASK=\"${CREATOR_ONLY_ADD_PROVE_TASK}\"" >> .env && \
-        # Make the publish script executable and run it
-        chmod +x ./publish.sh && \
-        # Run the publish script with npm integrity checks disabled
+        export USER_ADDRESS="$(cat /run/secrets/USER_ADDRESS)" && \
+        export USER_PRIVATE_ACCOUNT="$(cat /run/secrets/SETTLER_PRIVATE_ACCOUNT)" && \
+        export SETTLER_PRIVATE_ACCOUNT="$USER_PRIVATE_ACCOUNT" && \
+        export CHAIN_ID="${CHAIN_ID}" && \
+        export CREATOR_ONLY_ADD_PROVE_TASK="${CREATOR_ONLY_ADD_PROVE_TASK}" && \
+        ../scripts/clean_env.sh && \
         NODE_OPTIONS="--preserve-symlinks --no-warnings --no-deprecation" \
         npm_config_legacy_peer_deps=true \
         npm_config_package_lock=false \
@@ -97,29 +90,40 @@ RUN --mount=type=secret,id=SERVER_ADMIN_KEY \
         npm_config_fund=false \
         npm_config_update_notifier=false \
         npm_config_strict_ssl=false \
-        ./publish.sh || echo "WASM publishing failed, but continuing build"; \
-      else \
-        echo "Skipping WASM publishing due to missing secrets"; \
-      fi; \
+        ../scripts/publish.sh || { echo "Publishing failed with exit code $?"; exit 1; } && \
+        shred -u .env && \
+        cd ..; \
+    elif [ -s /run/secrets/USER_ADDRESS ] && [ ! -s /run/secrets/SETTLER_PRIVATE_ACCOUNT ]; then \
+        echo "WARNING: USER_ADDRESS found but SETTLER_PRIVATE_ACCOUNT missing in GitHub secrets"; \
+        echo "Skipping publishing - both secrets are required"; \
+    elif [ ! -s /run/secrets/USER_ADDRESS ] && [ -s /run/secrets/SETTLER_PRIVATE_ACCOUNT ]; then \
+        echo "WARNING: SETTLER_PRIVATE_ACCOUNT found but USER_ADDRESS missing in GitHub secrets"; \
+        echo "Skipping publishing - both secrets are required"; \
     else \
-      echo "WASM file not found, skipping publishing"; \
+        echo "INFO: No publishing credentials found in GitHub secrets"; \
+        echo "Skipping publishing step - this is normal for builds without deployment"; \
     fi
 
 # Production stage
 FROM node:18-slim
 
-# 设置非敏感环境变量
-ENV NODE_ENV="production"
-
 WORKDIR /app
 
-# Copy only necessary files from builder
-COPY --from=builder /app/ts ./ts
-COPY --from=builder /app/src/admin.pubkey ./src/admin.pubkey
-COPY --from=builder /app/build-artifacts ./build-artifacts
+ENV NODE_ENV="production"
 
-# Create user first
-RUN groupadd -r appuser && useradd -r -g appuser appuser
+# Create non-root user first
+RUN groupadd -r appuser && useradd -r -g appuser -m appuser
+
+# Copy application files with proper permissions
+COPY --from=builder --chown=appuser:appuser \
+    /app/ts \
+    /app/src/admin.pubkey \
+    ./
+
+# Set proper permissions
+RUN chmod -R 550 ./ts/src && \
+    chmod 440 ./src/admin.pubkey && \
+    chmod 440 ./ts/wasm.md5
 
 # Switch to non-root user
 USER appuser

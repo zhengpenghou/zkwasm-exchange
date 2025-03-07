@@ -43,16 +43,28 @@ echo "  Auto Submit: $AUTO_SUBMIT"
 echo "  Creator Only Add Prove Task: $CREATOR_ONLY_ADD_PROVE_TASK"
 
 # Check if the WASM file exists
-if [ ! -f "./node_modules/zkwasm-ts-server/src/application/application_bg.wasm" ]; then
-  echo "ERROR: WASM file not found at ./node_modules/zkwasm-ts-server/src/application/application_bg.wasm"
+WASM_PATH="../ts/node_modules/zkwasm-ts-server/src/application/application_bg.wasm"
+if [ -f "$WASM_PATH" ]; then
+  WASM_FILE="$WASM_PATH"
+elif [ -f "./node_modules/zkwasm-ts-server/src/application/application_bg.wasm" ]; then
+  WASM_FILE="./node_modules/zkwasm-ts-server/src/application/application_bg.wasm"
+else
+  echo "ERROR: WASM file not found"
   echo "Please ensure the WASM file is in the correct location"
   exit 1
 fi
 
 # Check if zkwasm-service-cli is installed
-if [ ! -d "./node_modules/zkwasm-service-cli" ]; then
+if [ ! -d "../ts/node_modules/zkwasm-service-cli" ] && [ ! -d "./node_modules/zkwasm-service-cli" ]; then
   echo "Installing zkwasm-service-cli..."
-  npm install zkwasm-service-cli
+  cd ../ts && npm install zkwasm-service-cli && cd -
+fi
+
+# Determine CLI path
+if [ -d "../ts/node_modules/zkwasm-service-cli" ]; then
+  CLI_PATH="../ts/node_modules/zkwasm-service-cli/dist/index.js"
+else
+  CLI_PATH="./node_modules/zkwasm-service-cli/dist/index.js"
 fi
 
 # Create a temporary file for the private key to avoid command line exposure
@@ -64,9 +76,9 @@ trap 'rm -f "$TMP_KEY_FILE"' EXIT INT TERM
 
 # Execute the command with environment variables
 echo "Running zkwasm-service-cli addimage command..."
-node ./node_modules/zkwasm-service-cli/dist/index.js addimage \
+node "$CLI_PATH" addimage \
   -r "https://rpc.zkwasmhub.com:8090" \
-  -p "./node_modules/zkwasm-ts-server/src/application/application_bg.wasm" \
+  -p "$WASM_FILE" \
   -u "$USER_ADDRESS" \
   -f "$TMP_KEY_FILE" \
   -n "$CHART_NAME" \
