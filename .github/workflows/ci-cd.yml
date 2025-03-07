@@ -99,8 +99,11 @@ jobs:
             "SERVER_ADMIN_KEY=${{ secrets.SERVER_ADMIN_KEY }}"
             "SETTLER_PRIVATE_ACCOUNT=${{ secrets.SETTLER_PRIVATE_ACCOUNT }}"
             "USER_ADDRESS=${{ secrets.USER_ADDRESS }}"
-          # Add build args as a fallback
+          # Build args with optimizations
           build-args: |
+            BUILDKIT_INLINE_CACHE=1
+            DOCKER_BUILDKIT=1
+            CI=true
             USER_ADDRESS=${{ secrets.USER_ADDRESS }}
             CHAIN_ID=${{ vars.CHAIN_ID || '11155111' }}
             CREATOR_ONLY_ADD_PROVE_TASK=${{ vars.CREATOR_ONLY_ADD_PROVE_TASK || 'true' }}
@@ -115,14 +118,7 @@ jobs:
           platforms: linux/amd64
           provenance: false
           # Optimize build speed
-          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.REPO_LOWER }},push-by-digest=true,name-canonical=true,push=${{ github.event_name != 'pull_request' }}
-          build-args: |
-            BUILDKIT_INLINE_CACHE=1
-            DOCKER_BUILDKIT=1
-            CI=true
-            USER_ADDRESS=${{ secrets.USER_ADDRESS }}
-            CHAIN_ID=${{ vars.CHAIN_ID || '11155111' }}
-            CREATOR_ONLY_ADD_PROVE_TASK=${{ vars.CREATOR_ONLY_ADD_PROVE_TASK || 'true' }}
+          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.REPO_LOWER }},push-by-digest=true,name-canonical=true
           
       # Move cache to prevent it from growing indefinitely
       - name: Move cache
@@ -168,10 +164,10 @@ jobs:
           
       # Add this step to save the repo name for the deploy job
       - name: Save repo info for deploy job
+        id: save_repo_info
         if: success() && github.event_name != 'pull_request'
         run: |
           echo "REPO_LOWER=${REPO_LOWER}" >> $GITHUB_OUTPUT
-        id: save_repo_info
 
   # deploy job commented out as requested - only using CI to build docker image and publish WASM
   # deploy:
