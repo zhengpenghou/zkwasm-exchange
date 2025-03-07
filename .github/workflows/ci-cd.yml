@@ -200,120 +200,120 @@ jobs:
   #         echo "Kubeconfig appears to be in YAML format"
   #       elif grep -q "\"apiVersion\":" $HOME/.kube/config; then
   #         echo "Kubeconfig appears to be in JSON format"
-        else
-          echo "WARNING: Kubeconfig does not contain apiVersion field, it may be invalid"
-          echo "First 10 lines of kubeconfig (sanitized):"
-          head -n 10 $HOME/.kube/config | sed 's/\(server: \).*/\1https:\/\/xxx.xxx.xxx.xxx/g'
-        fi
+  #       else
+  #         echo "WARNING: Kubeconfig does not contain apiVersion field, it may be invalid"
+  #         echo "First 10 lines of kubeconfig (sanitized):"
+  #         head -n 10 $HOME/.kube/config | sed 's/\(server: \).*/\1https:\/\/xxx.xxx.xxx.xxx/g'
+  #       fi
+  #       
+  #       echo "KUBECONFIG=$HOME/.kube/config" >> $GITHUB_ENV
         
-        echo "KUBECONFIG=$HOME/.kube/config" >> $GITHUB_ENV
+  #   # Add this step to set the repo name in the deploy job
+  #   - name: Set repository name
+  #     run: |
+  #       echo "REPO_LOWER=${GITHUB_REPOSITORY,,}" >> $GITHUB_ENV
+  #       
+  #   - name: Generate Helm charts
+  #     run: |
+  #       # Create directory structure - CHART_NAME will be determined in generate-helm.sh
+  #       # Just create the base directory here
+  #       mkdir -p helm-charts
+  #       
+  #       # Create a container from the image but don't run it
+  #       # Fix the image reference by using the full path
+  #       CONTAINER_ID=$(docker create ${{ env.REGISTRY }}/${{ env.REPO_LOWER }}:latest)
+  #       
+  #       # Extract the wasm.md5 file from the container
+  #       mkdir -p build-artifacts
+  #       docker cp $CONTAINER_ID:/app/build-artifacts/wasm.md5 build-artifacts/
+  #       
+  #       # Extract the WASM file from the container
+  #       docker cp $CONTAINER_ID:/app/build-artifacts/application_bg.wasm build-artifacts/
+  #       
+  #       # Remove the container
+  #       docker rm $CONTAINER_ID
+  #       
+  #       # Use the MD5 value from the Docker image
+  #       if [ -f build-artifacts/wasm.md5 ]; then
+  #         export IMAGE_VALUE="$(cat build-artifacts/wasm.md5)"
+  #         echo "Using WASM MD5 from Docker image: ${IMAGE_VALUE}"
+  #       else
+  #         echo "ERROR: Could not extract WASM MD5 from Docker image"
+  #         exit 1
+  #       fi
+  #       
+  #       # Set CHART_NAME to REPO_LOWER if not provided
+  #       if [ -z "${CHART_NAME}" ]; then
+  #         export CHART_NAME="${REPO_LOWER##*/}"
+  #         echo "CHART_NAME not provided, using repository name: ${CHART_NAME}"
+  #       else
+  #         echo "Using provided CHART_NAME: ${CHART_NAME}"
+  #       fi
+  #       
+  #       # Run chart generation script
+  #       chmod +x ./scripts/generate-helm.sh
+  #       ./scripts/generate-helm.sh
+  #       
+  #       # Save CHART_NAME for the deploy step
+  #       echo "CHART_NAME=${CHART_NAME}" >> $GITHUB_ENV
+  #     env:
+  #       # CHART_NAME will default to repo name if not provided
+  #       CHART_NAME: ${{ vars.CHART_NAME }}
+  #       CHAIN_ID: ${{ vars.CHAIN_ID }}
+  #       ALLOWED_ORIGINS: ${{ vars.ALLOWED_ORIGINS }}
+  #       K8S_NAMESPACE: ${{ vars.K8S_NAMESPACE }}
+  #       DEPLOY_VALUE: ${{ vars.DEPLOY_ENABLED }}
+  #       # IMAGE_VALUE is set in the script above
+  #       REMOTE_VALUE: ${{ vars.REMOTE_MODE }}
+  #       AUTO_SUBMIT_VALUE: ${{ vars.AUTO_SUBMIT }}
+  #       STORAGE_CLASS_NAME: ${{ vars.STORAGE_CLASS_NAME || 'csi-disk' }}
+  #       CREATOR_ONLY_ADD_PROVE_TASK: ${{ vars.CREATOR_ONLY_ADD_PROVE_TASK || 'true' }}
+  #       K8S_SECRET_NAME: ${{ vars.K8S_SECRET_NAME }}
+  #       SERVER_ADMIN_KEY: ${{ secrets.SERVER_ADMIN_KEY }}
+  #       SETTLER_PRIVATE_ACCOUNT: ${{ secrets.SETTLER_PRIVATE_ACCOUNT }}
+  #       USER_ADDRESS: ${{ secrets.USER_ADDRESS || '' }}
         
-    # Add this step to set the repo name in the deploy job
-    - name: Set repository name
-      run: |
-        echo "REPO_LOWER=${GITHUB_REPOSITORY,,}" >> $GITHUB_ENV
-        
-    - name: Generate Helm charts
-      run: |
-        # Create directory structure - CHART_NAME will be determined in generate-helm.sh
-        # Just create the base directory here
-        mkdir -p helm-charts
-        
-        # Create a container from the image but don't run it
-        # Fix the image reference by using the full path
-        CONTAINER_ID=$(docker create ${{ env.REGISTRY }}/${{ env.REPO_LOWER }}:latest)
-        
-        # Extract the wasm.md5 file from the container
-        mkdir -p build-artifacts
-        docker cp $CONTAINER_ID:/app/build-artifacts/wasm.md5 build-artifacts/
-        
-        # Extract the WASM file from the container
-        docker cp $CONTAINER_ID:/app/build-artifacts/application_bg.wasm build-artifacts/
-        
-        # Remove the container
-        docker rm $CONTAINER_ID
-        
-        # Use the MD5 value from the Docker image
-        if [ -f build-artifacts/wasm.md5 ]; then
-          export IMAGE_VALUE="$(cat build-artifacts/wasm.md5)"
-          echo "Using WASM MD5 from Docker image: ${IMAGE_VALUE}"
-        else
-          echo "ERROR: Could not extract WASM MD5 from Docker image"
-          exit 1
-        fi
-        
-        # Set CHART_NAME to REPO_LOWER if not provided
-        if [ -z "${CHART_NAME}" ]; then
-          export CHART_NAME="${REPO_LOWER##*/}"
-          echo "CHART_NAME not provided, using repository name: ${CHART_NAME}"
-        else
-          echo "Using provided CHART_NAME: ${CHART_NAME}"
-        fi
-        
-        # Run chart generation script
-        chmod +x ./scripts/generate-helm.sh
-        ./scripts/generate-helm.sh
-        
-        # Save CHART_NAME for the deploy step
-        echo "CHART_NAME=${CHART_NAME}" >> $GITHUB_ENV
-      env:
-        # CHART_NAME will default to repo name if not provided
-        CHART_NAME: ${{ vars.CHART_NAME }}
-        CHAIN_ID: ${{ vars.CHAIN_ID }}
-        ALLOWED_ORIGINS: ${{ vars.ALLOWED_ORIGINS }}
-        K8S_NAMESPACE: ${{ vars.K8S_NAMESPACE }}
-        DEPLOY_VALUE: ${{ vars.DEPLOY_ENABLED }}
-        # IMAGE_VALUE is set in the script above
-        REMOTE_VALUE: ${{ vars.REMOTE_MODE }}
-        AUTO_SUBMIT_VALUE: ${{ vars.AUTO_SUBMIT }}
-        STORAGE_CLASS_NAME: ${{ vars.STORAGE_CLASS_NAME || 'csi-disk' }}
-        CREATOR_ONLY_ADD_PROVE_TASK: ${{ vars.CREATOR_ONLY_ADD_PROVE_TASK || 'true' }}
-        K8S_SECRET_NAME: ${{ vars.K8S_SECRET_NAME }}
-        SERVER_ADMIN_KEY: ${{ secrets.SERVER_ADMIN_KEY }}
-        SETTLER_PRIVATE_ACCOUNT: ${{ secrets.SETTLER_PRIVATE_ACCOUNT }}
-        USER_ADDRESS: ${{ secrets.USER_ADDRESS || '' }}
-        
-    - name: Deploy to Kubernetes
-      run: |
-        # Debug GitHub variables
-        echo "Checking GitHub variables..."
-        echo "K8S_NAMESPACE from vars: '${{ vars.K8S_NAMESPACE }}'"
-        echo "K8S_NAMESPACE from env: '${K8S_NAMESPACE}'"
-        
-        # Use K8S_NAMESPACE from environment variable if set, otherwise use the GitHub variable, with zkwasm as fallback
-        NAMESPACE="${K8S_NAMESPACE:-${{ vars.K8S_NAMESPACE }}}"
-        NAMESPACE="${NAMESPACE:-zkwasm}"
-        echo "Using namespace: ${NAMESPACE}"
-        
-        # Create namespace if it doesn't exist
-        kubectl create namespace ${NAMESPACE} --dry-run=client -o yaml | kubectl apply -f -
-        
-        # Get secret name
-        SECRET_NAME="${K8S_SECRET_NAME:-${{ vars.K8S_SECRET_NAME }}}"
-        SECRET_NAME="${SECRET_NAME:-app-secrets}"
-        echo "Using secret name: ${SECRET_NAME}"
-        
-        # Create secret with required keys - using a simpler approach
-        echo "Creating Kubernetes secret..."
-        
-        # Create the secret directly with kubectl
-        kubectl create secret generic ${SECRET_NAME} \
-          --namespace=${NAMESPACE} \
-          --from-literal=SERVER_ADMIN_KEY="${{ secrets.SERVER_ADMIN_KEY }}" \
-          --from-literal=SETTLER_PRIVATE_ACCOUNT="${{ secrets.SETTLER_PRIVATE_ACCOUNT }}" \
-          --from-literal=USER_PRIVATE_ACCOUNT="${{ secrets.SETTLER_PRIVATE_ACCOUNT }}" \
-          --from-literal=USER_ADDRESS="${{ secrets.USER_ADDRESS || '' }}" \
-          --dry-run=client -o yaml | kubectl apply -f -
-        
-        # Debug info
-        echo "Deploying Helm chart from: ./helm-charts/${CHART_NAME}"
-        ls -la ./helm-charts/
-        
-        # Deploy using Helm
-        helm upgrade --install zkwasm-exchange \
-          ./helm-charts/${CHART_NAME} \
-          --namespace=${NAMESPACE} \
-          --atomic \
-          --timeout 5m
-      env:
-        KUBERNETES_CLUSTER: ${{ secrets.CLUSTER_NAME }}
+  #   - name: Deploy to Kubernetes
+  #     run: |
+  #       # Debug GitHub variables
+  #       echo "Checking GitHub variables..."
+  #       echo "K8S_NAMESPACE from vars: '${{ vars.K8S_NAMESPACE }}'"
+  #       echo "K8S_NAMESPACE from env: '${K8S_NAMESPACE}'"
+  #       
+  #       # Use K8S_NAMESPACE from environment variable if set, otherwise use the GitHub variable, with zkwasm as fallback
+  #       NAMESPACE="${K8S_NAMESPACE:-${{ vars.K8S_NAMESPACE }}}"
+  #       NAMESPACE="${NAMESPACE:-zkwasm}"
+  #       echo "Using namespace: ${NAMESPACE}"
+  #       
+  #       # Create namespace if it doesn't exist
+  #       kubectl create namespace ${NAMESPACE} --dry-run=client -o yaml | kubectl apply -f -
+  #       
+  #       # Get secret name
+  #       SECRET_NAME="${K8S_SECRET_NAME:-${{ vars.K8S_SECRET_NAME }}}"
+  #       SECRET_NAME="${SECRET_NAME:-app-secrets}"
+  #       echo "Using secret name: ${SECRET_NAME}"
+  #       
+  #       # Create secret with required keys - using a simpler approach
+  #       echo "Creating Kubernetes secret..."
+  #       
+  #       # Create the secret directly with kubectl
+  #       kubectl create secret generic ${SECRET_NAME} \
+  #         --namespace=${NAMESPACE} \
+  #         --from-literal=SERVER_ADMIN_KEY="${{ secrets.SERVER_ADMIN_KEY }}" \
+  #         --from-literal=SETTLER_PRIVATE_ACCOUNT="${{ secrets.SETTLER_PRIVATE_ACCOUNT }}" \
+  #         --from-literal=USER_PRIVATE_ACCOUNT="${{ secrets.SETTLER_PRIVATE_ACCOUNT }}" \
+  #         --from-literal=USER_ADDRESS="${{ secrets.USER_ADDRESS || '' }}" \
+  #         --dry-run=client -o yaml | kubectl apply -f -
+  #       
+  #       # Debug info
+  #       echo "Deploying Helm chart from: ./helm-charts/${CHART_NAME}"
+  #       ls -la ./helm-charts/
+  #       
+  #       # Deploy using Helm
+  #       helm upgrade --install zkwasm-exchange \
+  #         ./helm-charts/${CHART_NAME} \
+  #         --namespace=${NAMESPACE} \
+  #         --atomic \
+  #         --timeout 5m
+  #     env:
+  #       KUBERNETES_CLUSTER: ${{ secrets.CLUSTER_NAME }}
