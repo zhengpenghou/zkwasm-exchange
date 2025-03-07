@@ -152,53 +152,54 @@ jobs:
           echo "REPO_LOWER=${REPO_LOWER}" >> $GITHUB_OUTPUT
         id: save_repo_info
 
-  deploy:
-    needs: build
-    if: github.event_name != 'pull_request'
-    runs-on: ubuntu-latest
-    environment: production
-    
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-      
-    - name: Set up Helm
-      uses: azure/setup-helm@v3
-      with:
-        version: 'latest'
-        
-    - name: Set up kubectl
-      uses: azure/setup-kubectl@v3
-      with:
-        version: 'latest'
-        
-    - name: Configure Kubernetes credentials
-      run: |
-        echo "Creating kubeconfig file from secret..."
-        mkdir -p $HOME/.kube
-        
-        # Check if KUBE_CONFIG is base64 encoded
-        if [[ "${{ secrets.KUBE_CONFIG }}" == *"apiVersion"* ]]; then
-          # Not base64 encoded, use directly
-          echo "KUBE_CONFIG appears to be in plain text format"
-          echo "${{ secrets.KUBE_CONFIG }}" > $HOME/.kube/config
-        else
-          # Try to decode base64
-          echo "KUBE_CONFIG appears to be base64 encoded, attempting to decode"
-          echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > $HOME/.kube/config || {
-            echo "Failed to decode KUBE_CONFIG as base64, using as-is"
-            echo "${{ secrets.KUBE_CONFIG }}" > $HOME/.kube/config
-          }
-        fi
-        
-        chmod 600 $HOME/.kube/config
-        
-        # Validate kubeconfig format
-        echo "Validating kubeconfig format..."
-        if grep -q "apiVersion:" $HOME/.kube/config; then
-          echo "Kubeconfig appears to be in YAML format"
-        elif grep -q "\"apiVersion\":" $HOME/.kube/config; then
-          echo "Kubeconfig appears to be in JSON format"
+  # deploy job commented out as requested - only using CI to build docker image and publish WASM
+  # deploy:
+  #   needs: build
+  #   if: github.event_name != 'pull_request'
+  #   runs-on: ubuntu-latest
+  #   environment: production
+  #   
+  #   steps:
+  #   - name: Checkout repository
+  #     uses: actions/checkout@v4
+  #     
+  #   - name: Set up Helm
+  #     uses: azure/setup-helm@v3
+  #     with:
+  #       version: 'latest'
+  #       
+  #   - name: Set up kubectl
+  #     uses: azure/setup-kubectl@v3
+  #     with:
+  #       version: 'latest'
+  #       
+  #   - name: Configure Kubernetes credentials
+  #     run: |
+  #       echo "Creating kubeconfig file from secret..."
+  #       mkdir -p $HOME/.kube
+  #       
+  #       # Check if KUBE_CONFIG is base64 encoded
+  #       if [[ "${{ secrets.KUBE_CONFIG }}" == *"apiVersion"* ]]; then
+  #         # Not base64 encoded, use directly
+  #         echo "KUBE_CONFIG appears to be in plain text format"
+  #         echo "${{ secrets.KUBE_CONFIG }}" > $HOME/.kube/config
+  #       else
+  #         # Try to decode base64
+  #         echo "KUBE_CONFIG appears to be base64 encoded, attempting to decode"
+  #         echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > $HOME/.kube/config || {
+  #           echo "Failed to decode KUBE_CONFIG as base64, using as-is"
+  #           echo "${{ secrets.KUBE_CONFIG }}" > $HOME/.kube/config
+  #         }
+  #       fi
+  #       
+  #       chmod 600 $HOME/.kube/config
+  #       
+  #       # Validate kubeconfig format
+  #       echo "Validating kubeconfig format..."
+  #       if grep -q "apiVersion:" $HOME/.kube/config; then
+  #         echo "Kubeconfig appears to be in YAML format"
+  #       elif grep -q "\"apiVersion\":" $HOME/.kube/config; then
+  #         echo "Kubeconfig appears to be in JSON format"
         else
           echo "WARNING: Kubeconfig does not contain apiVersion field, it may be invalid"
           echo "First 10 lines of kubeconfig (sanitized):"
