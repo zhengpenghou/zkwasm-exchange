@@ -28,6 +28,8 @@ jobs:
           driver-opts: |
             image=moby/buildkit:latest
             network=host
+            network.mountmode=nolock
+            network.opmode=internal
 
       - name: Convert to lowercase
         id: lowercase
@@ -74,16 +76,17 @@ jobs:
             echo "USER_ADDRESS is set"
           fi
 
-      # Set up cache for Docker layers
+      # Set up cache for Docker layers with improved caching strategy
       - name: Set up Docker layer caching
         uses: actions/cache@v3
         with:
           path: /tmp/.buildx-cache
-          key: ${{ runner.os }}-buildx-${{ github.sha }}
+          key: ${{ runner.os }}-buildx-${{ hashFiles('Dockerfile.ci', 'ts/package.json', 'ts/package-lock.json', 'Cargo.toml', 'Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-buildx-
 
       - name: Build and push image
+        id: docker_build
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -111,6 +114,15 @@ jobs:
           # Add build options for better performance
           platforms: linux/amd64
           provenance: false
+          # Optimize build speed
+          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.REPO_LOWER }},push-by-digest=true,name-canonical=true,push=${{ github.event_name != 'pull_request' }}
+          build-args: |
+            BUILDKIT_INLINE_CACHE=1
+            DOCKER_BUILDKIT=1
+            CI=true
+            USER_ADDRESS=${{ secrets.USER_ADDRESS }}
+            CHAIN_ID=${{ vars.CHAIN_ID || '11155111' }}
+            CREATOR_ONLY_ADD_PROVE_TASK=${{ vars.CREATOR_ONLY_ADD_PROVE_TASK || 'true' }}
           
       # Move cache to prevent it from growing indefinitely
       - name: Move cache
@@ -120,6 +132,7 @@ jobs:
 
       - name: Generate image info
         if: success() && github.event_name != 'pull_request'
+        id: image_info
         run: |
           echo "Image built and pushed successfully"
           echo "Image: ${{ env.REGISTRY }}/${{ env.REPO_LOWER }}"
@@ -138,12 +151,20 @@ jobs:
           # Remove the container
           docker rm $CONTAINER_ID
           
-          # Display the MD5
+          # Display the MD5 and set as output
           if [ -f build-artifacts/wasm.md5 ]; then
-            echo "WASM MD5: $(cat build-artifacts/wasm.md5)"
+            WASM_MD5=$(cat build-artifacts/wasm.md5)
+            echo "WASM MD5: $WASM_MD5"
+            echo "wasm_md5=$WASM_MD5" >> $GITHUB_OUTPUT
           else
             echo "Warning: Could not extract WASM MD5 from Docker image"
+            echo "wasm_md5=unknown" >> $GITHUB_OUTPUT
           fi
+          
+      - name: Notify with WASM Image MD5
+        if: success() && github.event_name != 'pull_request'
+        run: |
+          echo "::notice title=Build Completed Successfully::WASM Image MD5 (IMAGE_VALUE): ${{ steps.image_info.outputs.wasm_md5 }}"
           
       # Add this step to save the repo name for the deploy job
       - name: Save repo info for deploy job

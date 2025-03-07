@@ -4,34 +4,34 @@ FROM node:18-bullseye as builder
 
 WORKDIR /app
 
-# Install Rust and wasm-pack - these rarely change
+# Install Rust and wasm-pack - these rarely change (combined into one layer)
 RUN apt-get update && apt-get install -y \
     curl \
     build-essential \
     pkg-config \
     libssl-dev \
     binaryen \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
+    && curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
 
-# Install Rust - this rarely changes
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 ENV PATH="/root/.cargo/bin:${PATH}"
-
-# Install wasm-pack - this rarely changes
-RUN curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
 
 # Copy package files first - these change less frequently than source code
 COPY ts/package.json ts/package-lock.json ts/tsconfig.json ts/
 COPY Cargo.toml Cargo.lock rust-toolchain ./
 
-# Install npm dependencies - this will be cached if package files don't change
+# Install npm dependencies with optimizations for CI
 RUN cd ts && \
-    # First try: Use package-lock.json (normal install)
-    (npm ci || \
-    # Second try: If npm ci fails, try regular install
-    npm install || \
-    # Third try: If regular install fails, try with --no-package-lock
-    npm install --no-package-lock)
+    npm config set fetch-retries 5 && \
+    npm config set fetch-retry-mintimeout 20000 && \
+    npm config set fetch-retry-maxtimeout 120000 && \
+    # Use npm ci with optimizations
+    (npm ci --no-audit --no-fund --prefer-offline --no-optional || \
+    # Fallback to regular install
+    npm install --no-audit --no-fund --prefer-offline --no-optional || \
+    # Last resort
+    npm install --no-package-lock --no-audit --no-fund)
 
 # Now copy the source code - this changes most frequently
 COPY src/ src/
@@ -51,7 +51,7 @@ ARG CREATOR_ONLY_ADD_PROVE_TASK="true"
 # Install zkwasm-service-cli for publishing
 RUN cd ts && npm install zkwasm-service-cli --no-audit --no-fund --no-optional --no-package-lock --no-save --ignore-scripts --force
 
-# Build WASM files and publish to zkwasmhub in a single step
+# Build WASM files - optimized for faster build
 RUN --mount=type=secret,id=SERVER_ADMIN_KEY \
     --mount=type=secret,id=SETTLER_PRIVATE_ACCOUNT \
     --mount=type=secret,id=USER_ADDRESS \
@@ -62,10 +62,10 @@ RUN --mount=type=secret,id=SERVER_ADMIN_KEY \
     export USER_PRIVATE_ACCOUNT=$(cat /run/secrets/SETTLER_PRIVATE_ACCOUNT 2>/dev/null | tr -d '\n\r' || echo "default_account") && \
     export USER_ADDRESS=$(cat /run/secrets/USER_ADDRESS 2>/dev/null | tr -d '\n\r' || echo "${USER_ADDRESS:-default_address}") && \
     echo "Using USER_ADDRESS: $USER_ADDRESS" && \
-    # Build WASM files
-    (make build || \
+    # Build WASM files with optimized settings
+    (RUSTFLAGS="-C target-cpu=native -C codegen-units=1 -C opt-level=3" make build || \
      (echo "Make build failed, trying direct wasm-pack build..." && \
-      cd src && wasm-pack build --release --out-name application --out-dir ../pkg && \
+      cd src && RUSTFLAGS="-C target-cpu=native -C codegen-units=1 -C opt-level=3" wasm-pack build --release --out-name application --out-dir ../pkg && \
       mkdir -p ../ts/node_modules/zkwasm-ts-server/src/application/ && \
       cp ../pkg/application_bg.wasm ../ts/node_modules/zkwasm-ts-server/src/application/)) && \
     # Generate MD5 and copy WASM file to build-artifacts
@@ -73,24 +73,23 @@ RUN --mount=type=secret,id=SERVER_ADMIN_KEY \
       md5sum ./ts/node_modules/zkwasm-ts-server/src/application/application_bg.wasm | \
       awk '{print toupper($1)}' > build-artifacts/wasm.md5 && \
       cp ./ts/node_modules/zkwasm-ts-server/src/application/application_bg.wasm build-artifacts/ && \
-      # Publish WASM image if secrets are available
-      if [ -n "$(cat /run/secrets/USER_ADDRESS 2>/dev/null)" ] && [ -n "$(cat /run/secrets/SETTLER_PRIVATE_ACCOUNT 2>/dev/null)" ]; then \
+      # Publish WASM image if secrets are available - only if not in CI mode
+      if [ "${CI:-false}" != "true" ] && [ -n "$(cat /run/secrets/USER_ADDRESS 2>/dev/null)" ] && [ -n "$(cat /run/secrets/SETTLER_PRIVATE_ACCOUNT 2>/dev/null)" ]; then \
         echo "Publishing WASM image to zkwasmhub..." && \
         cd ts && \
-        # Clean environment variables to ensure they don't contain newlines
-        USER_ADDRESS_CLEAN=$(echo "$USER_ADDRESS" | tr -d '\n\r') && \
-        USER_PRIVATE_ACCOUNT_CLEAN=$(echo "$USER_PRIVATE_ACCOUNT" | tr -d '\n\r') && \
-        # Create .env file with clean variables
-        echo "USER_ADDRESS=\"$USER_ADDRESS_CLEAN\"" > .env && \
-        echo "USER_PRIVATE_ACCOUNT=\"$USER_PRIVATE_ACCOUNT_CLEAN\"" >> .env && \
-        echo "SETTLER_PRIVATE_ACCOUNT=\"$USER_PRIVATE_ACCOUNT_CLEAN\"" >> .env && \
-        echo "CHAIN_ID=\"${CHAIN_ID}\"" >> .env && \
-        echo "CHART_NAME=\"zkwasm-exchange\"" >> .env && \
-        echo "CREATOR_ONLY_ADD_PROVE_TASK=\"${CREATOR_ONLY_ADD_PROVE_TASK}\"" >> .env && \
-        # Make the publish script executable and run it
+        # Create .env file with clean variables (simplified)
+        cat > .env << EOF
+        USER_ADDRESS="$(cat /run/secrets/USER_ADDRESS 2>/dev/null | tr -d '\n\r' || echo "${USER_ADDRESS:-default_address}")"
+        USER_PRIVATE_ACCOUNT="$(cat /run/secrets/SETTLER_PRIVATE_ACCOUNT 2>/dev/null | tr -d '\n\r' || echo "default_account")"
+        SETTLER_PRIVATE_ACCOUNT="$(cat /run/secrets/SETTLER_PRIVATE_ACCOUNT 2>/dev/null | tr -d '\n\r' || echo "default_account")"
+        CHAIN_ID="${CHAIN_ID}"
+        CHART_NAME="zkwasm-exchange"
+        CREATOR_ONLY_ADD_PROVE_TASK="${CREATOR_ONLY_ADD_PROVE_TASK}"
+        EOF
+        
+        # Make the publish script executable and run it with optimized settings
         chmod +x ./publish.sh && \
-        # Run the publish script with npm integrity checks disabled
-        NODE_OPTIONS="--preserve-symlinks --no-warnings --no-deprecation" \
+        NODE_OPTIONS="--max-old-space-size=4096 --preserve-symlinks --no-warnings --no-deprecation" \
         npm_config_legacy_peer_deps=true \
         npm_config_package_lock=false \
         npm_config_audit=false \
@@ -99,7 +98,7 @@ RUN --mount=type=secret,id=SERVER_ADMIN_KEY \
         npm_config_strict_ssl=false \
         ./publish.sh || echo "WASM publishing failed, but continuing build"; \
       else \
-        echo "Skipping WASM publishing due to missing secrets"; \
+        echo "Skipping WASM publishing due to missing secrets or CI mode"; \
       fi; \
     else \
       echo "WASM file not found, skipping publishing"; \
