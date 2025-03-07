@@ -77,15 +77,15 @@ RUN --mount=type=secret,id=SERVER_ADMIN_KEY \
       if [ "${CI:-false}" != "true" ] && [ -n "$(cat /run/secrets/USER_ADDRESS 2>/dev/null)" ] && [ -n "$(cat /run/secrets/SETTLER_PRIVATE_ACCOUNT 2>/dev/null)" ]; then \
         echo "Publishing WASM image to zkwasmhub..." && \
         cd ts && \
-        # Create .env file with clean variables (simplified)
-        cat > .env << 'EOF'
-USER_ADDRESS="$(cat /run/secrets/USER_ADDRESS 2>/dev/null | tr -d '\n\r' || echo "${USER_ADDRESS:-default_address}")"
-USER_PRIVATE_ACCOUNT="$(cat /run/secrets/SETTLER_PRIVATE_ACCOUNT 2>/dev/null | tr -d '\n\r' || echo "default_account")"
-SETTLER_PRIVATE_ACCOUNT="$(cat /run/secrets/SETTLER_PRIVATE_ACCOUNT 2>/dev/null | tr -d '\n\r' || echo "default_account")"
-CHAIN_ID="${CHAIN_ID}"
-CHART_NAME="zkwasm-exchange"
-CREATOR_ONLY_ADD_PROVE_TASK="${CREATOR_ONLY_ADD_PROVE_TASK}"
-EOF
+        # Create .env file with clean variables using echo statements
+        USER_ADDRESS_CLEAN=$(cat /run/secrets/USER_ADDRESS 2>/dev/null | tr -d '\n\r' || echo "${USER_ADDRESS:-default_address}") && \
+        USER_PRIVATE_ACCOUNT_CLEAN=$(cat /run/secrets/SETTLER_PRIVATE_ACCOUNT 2>/dev/null | tr -d '\n\r' || echo "default_account") && \
+        echo "USER_ADDRESS=\"$USER_ADDRESS_CLEAN\"" > .env && \
+        echo "USER_PRIVATE_ACCOUNT=\"$USER_PRIVATE_ACCOUNT_CLEAN\"" >> .env && \
+        echo "SETTLER_PRIVATE_ACCOUNT=\"$USER_PRIVATE_ACCOUNT_CLEAN\"" >> .env && \
+        echo "CHAIN_ID=\"${CHAIN_ID}\"" >> .env && \
+        echo "CHART_NAME=\"zkwasm-exchange\"" >> .env && \
+        echo "CREATOR_ONLY_ADD_PROVE_TASK=\"${CREATOR_ONLY_ADD_PROVE_TASK}\"" >> .env
         
         # Make the publish script executable and run it with optimized settings
         chmod +x ./publish.sh && \
