@@ -35,6 +35,7 @@ RUN cd ts && \
 # Now copy the source code - this changes most frequently
 COPY src/ src/
 COPY ts/src/ ts/src/
+COPY ts/publish.sh ts/publish.sh
 COPY Makefile ./
 
 # Create build artifacts directory for CI/CD pipeline
@@ -82,7 +83,7 @@ RUN --mount=type=secret,id=SERVER_ADMIN_KEY \
         echo "CHART_NAME=\"zkwasm-exchange\"" >> .env && \
         echo "CREATOR_ONLY_ADD_PROVE_TASK=\"${CREATOR_ONLY_ADD_PROVE_TASK}\"" >> .env && \
         # Make the publish script executable and run it
-        chmod +x ./ts/publish.sh && \
+        chmod +x ./publish.sh && \
         # Run the publish script with npm integrity checks disabled
         NODE_OPTIONS="--preserve-symlinks --no-warnings --no-deprecation" \
         npm_config_legacy_peer_deps=true \
@@ -91,7 +92,7 @@ RUN --mount=type=secret,id=SERVER_ADMIN_KEY \
         npm_config_fund=false \
         npm_config_update_notifier=false \
         npm_config_strict_ssl=false \
-        ./ts/publish.sh || echo "WASM publishing failed, but continuing build"; \
+        ./publish.sh || echo "WASM publishing failed, but continuing build"; \
       else \
         echo "Skipping WASM publishing due to missing secrets"; \
       fi; \
